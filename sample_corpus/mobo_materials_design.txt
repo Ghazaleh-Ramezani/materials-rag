@@ -1,0 +1,30 @@
+Multi-Objective Bayesian Optimization for Materials Design
+
+Abstract
+Designing materials often requires balancing competing objectives such as strength
+and ductility, or conductivity and transparency. We apply multi-objective Bayesian
+optimization to navigate these trade-offs efficiently, identifying Pareto-optimal
+compositions with a limited experimental budget.
+
+Background
+Bayesian optimization builds a surrogate model, typically a Gaussian process, over
+an expensive black-box objective and uses an acquisition function to select the next
+experiment. In the multi-objective setting the goal is to approximate the Pareto
+front rather than a single optimum.
+
+Acquisition Function
+We use the expected hypervolume improvement acquisition function, which scores
+candidate points by how much they are expected to expand the dominated hypervolume.
+The log variant qLogEHVI improves numerical stability and supports batch proposals,
+allowing several experiments to be suggested per iteration.
+
+Case Study
+Applied to a composite formulation problem with two objectives, the method located
+a Pareto front covering high-stiffness and high-toughness regions within 40
+evaluations, compared with over 150 evaluations for random search. The surrogate
+uncertainty guided sampling toward poorly explored composition regions.
+
+Conclusion
+Multi-objective Bayesian optimization with hypervolume-based acquisition is a
+sample-efficient route to mapping property trade-offs in materials design, reducing
+the number of costly experiments required.
