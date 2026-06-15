@@ -1,128 +1,147 @@
-# Materials Science RAG Pipeline
+# Materials-RAG — Hybrid RAG over Scientific Literature
 
-**Author:** Ghazaleh Ramezani, Ph.D. | Concordia University
-**Corpus:** Ramezani et al., *Micromachines* 16(4):393, 2025 (+ related work)
+An end-to-end Retrieval-Augmented Generation pipeline over a corpus of materials-science
+papers. It ingests and cleans PDFs into chunked, metadata-rich documents, indexes them in
+**both** a BM25 sparse index and a FAISS dense index, fuses the two with **Reciprocal Rank
+Fusion**, optionally **reranks** with a cross-encoder, **caches** semantically similar
+queries, and generates cited answers behind a **FastAPI** `/qa` endpoint. Ships with an
+**evaluation harness** (Recall@k, MRR) and is **containerized with Docker**.
 
-A production-grade Retrieval-Augmented Generation (RAG) pipeline over scientific
-publications, implementing advanced retrieval techniques from the ML systems
-literature.
+The repo runs fully **offline and key-free out of the box** (a deterministic hashing
+embedder + a mock extractive generator), so a reviewer can clone and get answers in one
+command — then flip two env vars to use real `sentence-transformers` embeddings and a live
+LLM.
+
+---
 
 ## Architecture
 
 ```
-User query
-    │
-    ▼
-[Semantic Cache] ──cache hit──▶ cached answer
-    │ miss
-    ▼
-[Hybrid Retrieval]
-    ├── BM25 (lexical — exact match, numbers, terminology)
-    ├── Dense bi-encoder (all-MiniLM-L6-v2, semantic similarity)
-    └── RRF fusion → top-50 candidates
-    │
-    ▼
-[Cross-encoder Re-ranking]
-    └── cross-encoder/ms-marco-MiniLM-L-6-v2
-    └── top-50 → top-4 (query+chunk joint attention)
-    │
-    ▼
-[LLM Generation]  (OpenAI GPT-4 / local model)
-    │
-    ▼
-Answer + cache store (entity-aware bypass)
+                                  ┌─────────────────────────────┐
+  data/raw/*.pdf|*.txt            │        Ingestion            │
+  (or bundled sample_corpus) ───▶ │  extract → clean → chunk    │ ──▶ data/processed/chunks.jsonl
+                                  │  + metadata (title, year…)  │
+                                  └─────────────────────────────┘
+                                                │
+                  ┌─────────────────────────────┴─────────────────────────────┐
+                  ▼                                                             ▼
+        ┌───────────────────┐                                       ┌────────────────────┐
+        │  Sparse index     │                                       │   Dense index      │
+        │  BM25 (rank-bm25) │                                       │  FAISS (cosine)    │
+        └───────────────────┘                                       │  sentence-transf.  │
+                  │                                                  └────────────────────┘
+                  │  top-k                                                 │  top-k
+                  └───────────────────────┐         ┌──────────────────────┘
+                                          ▼         ▼
+                               ┌────────────────────────────┐
+                               │  Reciprocal Rank Fusion     │
+                               └────────────────────────────┘
+                                          │ fused top-N
+                                          ▼
+                               ┌────────────────────────────┐
+                               │  Cross-encoder reranker     │  (optional)
+                               └────────────────────────────┘
+                                          │ final-k contexts
+                                          ▼
+   query ──▶ Semantic cache ──(miss)──▶  LLM generation (Anthropic / OpenAI / mock)
+              │  (hit)                          │  cited answer
+              └──────────────▶ Answer ◀─────────┘
+                                   ▲
+                          FastAPI  POST /qa
 ```
 
-## Key Design Decisions
+## Stack
 
-### Why Hybrid (BM25 + Dense)?
-BM25 alone fails on **vocabulary mismatch** — "reducing agent" vs "reductant" scores zero in BM25.
-Dense embeddings alone fail on **exact values in tables** — "1.72 S/m" needs exact token match.
-RRF fusion captures both signals without tuning separate weights.
+| Layer        | Tooling                                                          |
+|--------------|-----------------------------------------------------------------|
+| Ingestion    | `pypdf`, regex cleaning, word-window chunking                   |
+| Sparse index | `rank-bm25` (BM25Okapi)                                          |
+| Dense index  | `faiss-cpu` (IndexFlatIP / cosine), `sentence-transformers`     |
+| Fusion       | Reciprocal Rank Fusion (own implementation)                     |
+| Rerank       | `sentence-transformers` CrossEncoder (optional)                 |
+| Cache        | exact + embedding nearest-neighbor, JSONL-persisted             |
+| Generation   | Anthropic / OpenAI SDK, or offline mock                         |
+| Serving      | FastAPI + Uvicorn                                               |
+| Eval         | Recall@k, MRR (+ optional LLM faithfulness)                     |
+| Packaging    | Docker, `pyproject.toml`                                         |
 
-### Fusion: RRF (default) and weighted — both implemented
-Two strategies, selectable per corpus:
-
-- **RRF** (`fusion="rrf"`, default) — Reciprocal Rank Fusion uses only **rank
-  position**, not raw scores, so the incompatible scales of BM25 (unbounded)
-  and cosine (`[-1, 1]`) never have to be normalised. `score(d) = Σ 1/(k + rank_d)`, `k=60`. Robust, zero-tuning default.
-- **Weighted** (`fusion="weighted"`, `alpha`) — `alpha * dense_norm + (1-alpha) * bm25_norm`
-  after per-query min-max normalisation. `alpha` is a **tunable hyperparameter**:
-  with a labelled dev set you can optimise the lexical/semantic balance for a
-  specific domain.
-
-Both are benchmarked side-by-side with `compare_configs` (Recall@k + MRR) so the
-choice is data-driven, not arbitrary.
-
-### Why Cross-encoder Re-ranking?
-Bi-encoder embeds query and chunk **independently** — fast but loses inter-token attention.
-Cross-encoder sees query+chunk **jointly** — slower but dramatically more accurate for top-k precision.
-Two-stage: bi-encoder for recall (top-50), cross-encoder for precision (top-4).
-
-### Semantic Cache with Entity-Aware Bypass
-Risk: "conductivity of sample 5" and "conductivity of sample 6" have cosine > 0.95 but different answers.
-Solution: regex detects entity patterns (sample IDs, numeric values + units) → bypasses cache entirely.
-
-## Evaluation
-
-Retrieval is evaluated *independently of the final LLM answer* on a hand-built
-test set (questions paired with the chunk IDs that contain the answer):
-
-| Metric | Description |
-|--------|-------------|
-| Recall@4 | Ground-truth chunk in top-4 retrieved |
-| MRR | Mean reciprocal rank of first relevant chunk |
-
-Run `python runner.py` to populate these numbers on your corpus.
-
-## Quickstart (Google Colab)
+## Quickstart (offline, no keys)
 
 ```bash
 pip install -r requirements.txt
+
+python -m src.ingestion.ingest_papers      # → data/processed/chunks.jsonl (uses sample_corpus)
+python -m scripts.build_indexes            # → BM25 + FAISS indexes
+python -m scripts.run_query "How does rGO reduction degree affect the gauge factor?"
+python -m src.evaluation.eval_retrieval --k 3
 ```
 
-```python
-# With your own PDFs:
-from langchain.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+Serve the API:
 
-loader = PyPDFLoader("your_paper.pdf")
-docs = loader.load()
-splitter = RecursiveCharacterTextSplitter(chunk_size=512, chunk_overlap=64)
-chunks = splitter.split_documents(docs)
-
-# Convert to (id, section, text) format and pass to RAGPipeline
-corpus = [(f"c{i}", "paper", c.page_content) for i, c in enumerate(chunks)]
-
-from src.rag_pipeline import RAGPipeline
-pipeline = RAGPipeline(corpus)
-print(pipeline.query("What reducing agent gave the best conductivity?"))
+```bash
+uvicorn src.api.main:app --reload --port 8000
+curl -X POST localhost:8000/qa -H "Content-Type: application/json" \
+     -d '{"query": "What acquisition function is used for multi-objective BO?", "k": 3}'
 ```
 
-## Files
+Or with Docker:
 
-| File | Description |
-|------|-------------|
-| `src/rag_pipeline.py` | Full pipeline: BM25, dense retriever, hybrid RRF, cross-encoder, semantic cache |
-| `src/pdf_loader.py` | Section-aware PDF loading (Abstract / Methods / Results / ...) |
-| `src/evaluation.py` | Recall@k, MRR, config comparison |
-| `runner.py` | Demo script with sample corpus + evaluation |
-| `tests/test_logic.py` | Unit tests (mock embedder, no network) |
+```bash
+docker build -t materials-rag . && docker run -p 8000:8000 materials-rag
+```
 
-## Resume Bullet
+A `Makefile` wraps these (`make build`, `make query`, `make api`, `make eval`, `make test`).
 
-> *"Built a production-grade RAG pipeline (hybrid BM25+dense retrieval with RRF
-> fusion, cross-encoder re-ranking, entity-aware semantic cache) over 13
-> peer-reviewed publications — evaluated with Recall@4 and MRR metrics."*
+## Using it for real
 
-## References
+1. Drop your own `*.pdf` (or `*.txt`) into `data/raw/`. Optionally add a sidecar
+   `paper.meta.json` (`{"title": ..., "year": ..., "journal": ...}`) for richer metadata.
+2. Switch on real models / generation in `.env` (copy from `.env.example`):
+   ```
+   EMBEDDING_BACKEND=sentence-transformers
+   USE_RERANKER=true
+   LLM_PROVIDER=anthropic        # or openai
+   ANTHROPIC_API_KEY=...
+   ```
+3. Re-run `make build` and query as above.
 
-- Robertson & Zaragoza (2009) — BM25
-- Reimers & Gurevych (2019) — Sentence-BERT
-- Nogueira & Cho (2019) — Passage Re-ranking with BERT
-- Cormack et al. (2009) — Reciprocal Rank Fusion
-- Lewis et al. (2020) — RAG (Facebook AI)
+## Project layout
 
-## License
+```
+src/
+  ingestion/ingest_papers.py   extract → clean → chunk → chunks.jsonl
+  indexing/sparse_index.py     BM25 build / search / persist
+  indexing/dense_index.py      FAISS build / search / persist
+  indexing/embedders.py        sentence-transformers + offline hashing fallback
+  retrieval/hybrid.py          RRF fusion + cross-encoder reranker
+  retrieval/cache.py           semantic cache (exact + nearest-neighbor)
+  generation/llm.py            RAG prompt + anthropic/openai/mock providers
+  pipeline.py                  cache → retrieve → rerank → generate
+  api/main.py                  FastAPI /qa and /health
+  evaluation/eval_retrieval.py Recall@k, MRR
+scripts/                       build_indexes.py, run_query.py
+tests/                         RRF + end-to-end retrieval tests
+sample_corpus/                 4 synthetic materials-science docs so it runs offline
+data/qa_benchmark/qa.jsonl     12-question evaluation set
+```
 
-MIT
+## Design notes & honest limitations
+
+- **Offline-by-default is deliberate.** The hashing embedder and mock generator exist so the
+  pipeline is always runnable in CI and demos; they are *not* semantically strong. Real
+  retrieval quality comes from `EMBEDDING_BACKEND=sentence-transformers` + a reranker.
+- **Tokens are approximated by words** in chunking (~1.3 tokens/word) to avoid a tokenizer
+  dependency in the ingestion path.
+- **The bundled corpus is tiny (4 docs / 12 questions).** On it, Recall@k and MRR are near
+  1.0 — expected and not impressive on its own. The metrics become meaningful on a real
+  corpus of 30–50+ papers with overlapping topics; the harness is built to scale to that.
+- **Faithfulness / RAGAS-style scoring** is wired as optional and requires an LLM provider;
+  retrieval metrics run without any key.
+- PDF cleaning is heuristic (drops reference lists, lone page numbers, runaway whitespace);
+  messy real-world PDFs will need per-source tuning.
+
+## Tests
+
+```bash
+pytest -q        # RRF fusion logic + offline end-to-end retrieval over sample_corpus
+```
