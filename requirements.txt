@@ -1,0 +1,19 @@
+# --- core (required, all on PyPI) ---
+numpy>=1.24
+rank-bm25>=0.2.2
+faiss-cpu>=1.7.4
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+pypdf>=4.0
+
+# --- real embeddings + reranker (optional; one-time model download) ---
+# sentence-transformers>=2.6
+# torch>=2.1
+
+# --- LLM providers (optional; needed only for real generation) ---
+# anthropic>=0.40
+# openai>=1.30
+
+# --- dev ---
+pytest>=8.0

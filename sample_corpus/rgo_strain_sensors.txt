@@ -1,0 +1,32 @@
+Reduced Graphene Oxide Strain Sensors with Tunable Gauge Factor
+
+Abstract
+Reduced graphene oxide (rGO) has emerged as a versatile material for flexible
+strain sensors owing to its high electrical conductivity and mechanical
+flexibility. In this work we describe the fabrication of rGO-based piezoresistive
+sensors and the relationship between reduction degree and sensing performance.
+
+Introduction
+Graphene oxide (GO) is an electrically insulating precursor that can be reduced
+chemically or thermally to restore a conductive sp2 carbon network. The degree of
+reduction controls the carrier concentration and therefore the baseline resistance
+of the film. Sensors built from highly reduced rGO show lower baseline resistance
+but a smaller relative resistance change under strain.
+
+Sensing Mechanism
+Under tensile strain, microcracks form between overlapping rGO flakes, increasing
+the tunneling distance and raising resistance. The gauge factor, defined as the
+relative change in resistance divided by the applied strain, increases with the
+density of flake-flake junctions. We observed gauge factors ranging from 12 at low
+reduction to over 60 for partially reduced films with abundant junctions.
+
+Results
+Partially reduced rGO films achieved a gauge factor of 64 at 2 percent strain while
+retaining stable response over 5000 bending cycles. Increasing reduction temperature
+from 200 to 400 degrees Celsius lowered baseline resistance from 8 kilo-ohm to
+0.9 kilo-ohm but reduced the gauge factor due to fewer high-resistance junctions.
+
+Conclusion
+The reduction degree of rGO is the primary lever for tuning the trade-off between
+baseline conductivity and strain sensitivity. Partial reduction offers the best
+compromise for wearable strain-sensing applications.

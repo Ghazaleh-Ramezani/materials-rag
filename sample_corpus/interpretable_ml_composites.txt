@@ -1,0 +1,29 @@
+Interpretable Machine Learning for Predicting Composite Properties
+
+Abstract
+Machine learning models can predict the mechanical and electrical properties of
+composites from processing and composition descriptors, but black-box predictions
+hinder scientific trust. We use SHAP-based interpretability to explain a gradient
+boosting model trained on a composite property dataset.
+
+Dataset and Model
+The dataset contains composition fractions, filler aspect ratio, and processing
+temperature as input features, with electrical conductivity as the target. A
+gradient boosting regressor achieved a coefficient of determination of 0.91 on a
+held-out test set.
+
+Feature Attribution
+SHAP values decompose each prediction into additive feature contributions. Filler
+loading and aspect ratio were the dominant positive contributors to conductivity,
+while excessive processing temperature contributed negatively, consistent with known
+filler degradation at high temperature.
+
+Physical Consistency
+The interpretability analysis recovered established physical relationships: a
+percolation-like threshold in filler loading and a monotonic benefit from higher
+aspect ratio. This agreement increases confidence that the model captures genuine
+structure-property relationships rather than spurious correlations.
+
+Conclusion
+Pairing accurate predictive models with SHAP attribution provides both predictive
+power and physical insight, supporting interpretable, data-driven materials design.

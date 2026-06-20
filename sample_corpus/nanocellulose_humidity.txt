@@ -1,0 +1,30 @@
+Nanocellulose-Graphene Composite Films for Humidity Sensing
+
+Abstract
+Cellulose nanofibrils (CNF) provide a hydrophilic, mechanically robust matrix that
+can host conductive graphene fillers. We report flexible humidity sensors made from
+CNF films loaded with graphene oxide, where water uptake modulates ionic and
+electronic transport.
+
+Matrix and Filler
+CNF is extracted from wood pulp by mechanical fibrillation and forms transparent,
+foldable films through vacuum filtration. Graphene oxide disperses well in the polar
+CNF matrix because of abundant oxygen-containing groups on both components, yielding
+uniform composites without surfactants.
+
+Humidity Response
+At low relative humidity the composite conducts mainly through percolating graphene
+oxide pathways. As relative humidity rises above 60 percent, absorbed water
+introduces proton hopping that sharply increases conductivity. The sensor showed a
+response time of about 8 seconds and recovery time of 15 seconds across a 20 to 90
+percent relative humidity range.
+
+Mechanical Properties
+Adding 5 weight percent graphene oxide increased the tensile strength of the CNF
+film from 90 to 130 megapascal while keeping elongation at break above 4 percent.
+Higher loadings beyond 10 weight percent embrittled the film and reduced humidity
+sensitivity due to filler aggregation.
+
+Conclusion
+CNF-graphene oxide composites combine mechanical robustness with strong humidity
+response, making them attractive for sustainable, biodegradable sensing substrates.
