@@ -1,19 +1,15 @@
 """End-to-end smoke tests over the bundled sample corpus.
 
-These run fully offline (EMBEDDING_BACKEND=hashing, LLM_PROVIDER=mock).
+These run fully offline (EMBEDDING_BACKEND=hashing, LLM_PROVIDER=mock; see
+conftest.py).
 """
-
-import os
-
-os.environ.setdefault("EMBEDDING_BACKEND", "hashing")
-os.environ.setdefault("LLM_PROVIDER", "mock")
-os.environ.setdefault("CACHE_ENABLED", "false")
 
 import pytest
 
 from src.indexing.dense_index import DenseIndex
 from src.indexing.sparse_index import SparseIndex
-from src.ingestion.ingest_papers import run as ingest_run, load_chunks
+from src.ingestion.ingest_papers import load_chunks
+from src.ingestion.ingest_papers import run as ingest_run
 from src.retrieval.hybrid import HybridRetriever
 
 

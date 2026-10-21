@@ -28,6 +28,7 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 class Embedder(Protocol):
     dim: int
+    name: str  # identifies the vector space; an index records it and checks it on load
 
     def encode(self, texts: List[str]) -> np.ndarray:
         """Return an (n, dim) float32 array of L2-normalized vectors."""
@@ -45,6 +46,7 @@ class HashingEmbedder:
 
     def __init__(self, dim: int | None = None):
         self.dim = dim or config.embedding_dim
+        self.name = f"hashing:{self.dim}"
 
     def _embed_one(self, text: str) -> np.ndarray:
         vec = np.zeros(self.dim, dtype="float32")
@@ -67,8 +69,10 @@ class SentenceTransformerEmbedder:
     def __init__(self, model_name: str | None = None):
         from sentence_transformers import SentenceTransformer  # lazy import
 
-        self.model = SentenceTransformer(model_name or config.embedding_model)
+        model_name = model_name or config.embedding_model
+        self.model = SentenceTransformer(model_name)
         self.dim = int(self.model.get_sentence_embedding_dimension())
+        self.name = f"sentence-transformers:{model_name}"
 
     def encode(self, texts: List[str]) -> np.ndarray:
         if not texts:

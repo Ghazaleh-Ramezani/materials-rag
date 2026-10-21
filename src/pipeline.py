@@ -7,10 +7,10 @@ import time
 from typing import Optional
 
 from src.config import config
+from src.generation.llm import LLMClient
 from src.indexing.dense_index import DenseIndex
 from src.indexing.sparse_index import SparseIndex
 from src.ingestion.ingest_papers import load_chunks
-from src.generation.llm import LLMClient
 from src.retrieval.cache import SemanticCache
 from src.retrieval.hybrid import CrossEncoderReranker, HybridRetriever
 from src.schemas import Answer, Chunk, RetrievedChunk
@@ -19,7 +19,6 @@ from src.schemas import Answer, Chunk, RetrievedChunk
 class RAGPipeline:
     def __init__(self) -> None:
         chunks = load_chunks()
-        embedder = None  # let DenseIndex build/share its embedder
         self.dense = DenseIndex.load()
         self.sparse = SparseIndex.load()
         reranker = CrossEncoderReranker() if config.use_reranker else None
@@ -36,9 +35,13 @@ class RAGPipeline:
         self, query: str, k: Optional[int] = None, use_reranker: Optional[bool] = None
     ) -> Answer:
         t0 = time.perf_counter()
+        k = k or config.final_k
+        use_reranker = config.use_reranker if use_reranker is None else use_reranker
+        # A cached answer is only valid for the retrieval settings it came from.
+        namespace = f"k={k}|rerank={int(use_reranker)}"
 
         if self.cache is not None:
-            cached = self.cache.get(query)
+            cached = self.cache.get(query, namespace=namespace)
             if cached is not None:
                 contexts = [
                     RetrievedChunk(
@@ -59,6 +62,9 @@ class RAGPipeline:
                     },
                 )
 
+        if use_reranker and self.retriever.reranker is None:
+            # Requested per call while the service default is off: build it once.
+            self.retriever.reranker = CrossEncoderReranker()
         contexts = self.retriever.retrieve(query, k=k, use_reranker=use_reranker)
         answer_text, used = self.llm.generate(query, contexts)
         answer = Answer(
@@ -68,26 +74,22 @@ class RAGPipeline:
             metadata={
                 "cache": "miss",
                 "provider": self.llm.provider,
+                "k": k,
+                "reranker": use_reranker,
                 "n_contexts": len(contexts),
                 "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
             },
         )
 
         if self.cache is not None:
-            self.cache.set(
-                query,
-                {
-                    "answer_text": answer.answer_text,
-                    "used_chunks": answer.used_chunks,
-                    "contexts": [
-                        {
-                            "chunk": c.chunk.to_dict(),
-                            "score": c.score,
-                            "sources": c.sources,
-                        }
-                        for c in answer.contexts
-                    ],
-                    "metadata": {"provider": self.llm.provider},
-                },
-            )
+            payload = {
+                "answer_text": answer.answer_text,
+                "used_chunks": answer.used_chunks,
+                "contexts": [
+                    {"chunk": c.chunk.to_dict(), "score": c.score, "sources": c.sources}
+                    for c in answer.contexts
+                ],
+                "metadata": {"provider": self.llm.provider, "k": k, "reranker": use_reranker},
+            }
+            self.cache.set(query, payload, namespace=namespace)
         return answer

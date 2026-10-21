@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import List, Tuple
 
 import faiss
-import numpy as np
 
 from src.config import config
 from src.indexing.embedders import Embedder, get_embedder
@@ -48,14 +47,30 @@ class DenseIndex:
         path = path or (config.index_dir / "faiss.index")
         path.parent.mkdir(parents=True, exist_ok=True)
         faiss.write_index(self._index, str(path))
-        ids_path = path.with_suffix(".ids.json")
-        ids_path.write_text(json.dumps(self._chunk_ids), encoding="utf-8")
+        path.with_suffix(".ids.json").write_text(json.dumps(self._chunk_ids), encoding="utf-8")
+        meta = {"embedder": self.embedder.name, "dim": int(self._index.d), "n": len(self._chunk_ids)}
+        path.with_suffix(".meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
     @classmethod
     def load(cls, path: Path | None = None, embedder: Embedder | None = None) -> "DenseIndex":
+        """Load an index and check it was built with the current embedder.
+
+        Vectors from two embedders live in different spaces even when their
+        dimensions agree (the offline hashing embedder and all-MiniLM-L6-v2
+        are both 384-d), so a mismatch would return plausible-looking but
+        meaningless neighbours instead of an error.
+        """
         path = path or (config.index_dir / "faiss.index")
         obj = cls(embedder=embedder)
         obj._index = faiss.read_index(str(path))
-        ids_path = path.with_suffix(".ids.json")
-        obj._chunk_ids = json.loads(ids_path.read_text(encoding="utf-8"))
+        obj._chunk_ids = json.loads(path.with_suffix(".ids.json").read_text(encoding="utf-8"))
+        meta_path = path.with_suffix(".meta.json")
+        built_with = None
+        if meta_path.exists():
+            built_with = json.loads(meta_path.read_text(encoding="utf-8"))["embedder"]
+        if built_with != obj.embedder.name:
+            raise ValueError(
+                f"Dense index at {path} was built with embedder {built_with!r}, but the current "
+                f"embedder is {obj.embedder.name!r}. Rebuild it with `python -m scripts.build_indexes`."
+            )
         return obj

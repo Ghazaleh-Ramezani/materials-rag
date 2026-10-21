@@ -1,8 +1,14 @@
 """Evaluation harness.
 
-Retrieval metrics (always available, offline):
-    * Recall@k  — fraction of questions whose relevant doc_id appears in top-k
-    * MRR       — mean reciprocal rank of the first relevant doc_id
+Retrieval metrics (always available, offline), over the ranked list of
+distinct documents behind the retrieved chunks:
+    * Recall@k  — share of a question's relevant documents found in the top k,
+                  averaged over questions
+    * Hit@k     — share of questions with at least one relevant document in
+                  the top k
+    * MRR       — mean reciprocal rank of the first relevant document
+With one relevant document per question Recall@k and Hit@k coincide; they
+separate as soon as a question has several.
 
 Optional generation metric (needs an LLM provider):
     * faithfulness — LLM judges whether the answer is supported by the contexts.
@@ -40,8 +46,11 @@ def _relevant_doc_ids(item: dict) -> set:
 def recall_at_k(retrieved_doc_ids: List[str], relevant: set, k: int) -> float:
     if not relevant:
         return 0.0
-    topk = set(retrieved_doc_ids[:k])
-    return 1.0 if (topk & relevant) else 0.0
+    return len(set(retrieved_doc_ids[:k]) & relevant) / len(relevant)
+
+
+def hit_at_k(retrieved_doc_ids: List[str], relevant: set, k: int) -> float:
+    return 1.0 if set(retrieved_doc_ids[:k]) & relevant else 0.0
 
 
 def reciprocal_rank(retrieved_doc_ids: List[str], relevant: set) -> float:
@@ -58,6 +67,7 @@ def evaluate(k: int = None, use_reranker: bool = None) -> dict:
 
     rows = []
     recall_sum = 0.0
+    hit_sum = 0.0
     rr_sum = 0.0
     for item in qa:
         question = item["question"]
@@ -72,15 +82,18 @@ def evaluate(k: int = None, use_reranker: bool = None) -> dict:
                 retrieved_doc_ids.append(c.chunk.doc_id)
 
         r = recall_at_k(retrieved_doc_ids, relevant, k)
+        h = hit_at_k(retrieved_doc_ids, relevant, k)
         rr = reciprocal_rank(retrieved_doc_ids, relevant)
         recall_sum += r
+        hit_sum += h
         rr_sum += rr
         rows.append(
             {
                 "question": question,
                 "relevant": "|".join(sorted(relevant)),
                 "retrieved": "|".join(retrieved_doc_ids[:k]),
-                f"recall@{k}": r,
+                f"recall@{k}": round(r, 4),
+                f"hit@{k}": h,
                 "reciprocal_rank": round(rr, 4),
             }
         )
@@ -89,6 +102,7 @@ def evaluate(k: int = None, use_reranker: bool = None) -> dict:
     summary = {
         "n_questions": len(qa),
         f"recall@{k}": round(recall_sum / n, 4),
+        f"hit@{k}": round(hit_sum / n, 4),
         "mrr": round(rr_sum / n, 4),
         "reranker": bool(config.use_reranker if use_reranker is None else use_reranker),
         "embedding_backend": config.embedding_backend,
@@ -107,7 +121,7 @@ def evaluate(k: int = None, use_reranker: bool = None) -> dict:
 
 
 def _cli() -> None:
-    ap = argparse.ArgumentParser(description="Evaluate retrieval (Recall@k, MRR)")
+    ap = argparse.ArgumentParser(description="Evaluate retrieval (Recall@k, Hit@k, MRR)")
     ap.add_argument("--k", type=int, default=None)
     ap.add_argument("--reranker", action="store_true", default=None)
     args = ap.parse_args()
