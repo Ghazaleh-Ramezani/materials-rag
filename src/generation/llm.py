@@ -53,20 +53,20 @@ def _mock_answer(query: str, contexts: List[RetrievedChunk]) -> str:
     return "\n".join(lines)
 
 
-def _anthropic_answer(prompt: str) -> str:  # pragma: no cover - needs network/key
+def _anthropic_complete(system: str, prompt: str) -> str:  # pragma: no cover - needs network/key
     import anthropic
 
     client = anthropic.Anthropic()
     resp = client.messages.create(
         model=config.anthropic_model,
         max_tokens=config.max_tokens,
-        system=SYSTEM_PROMPT,
+        system=system,
         messages=[{"role": "user", "content": prompt}],
     )
     return "".join(block.text for block in resp.content if block.type == "text")
 
 
-def _openai_answer(prompt: str) -> str:  # pragma: no cover - needs network/key
+def _openai_complete(system: str, prompt: str) -> str:  # pragma: no cover - needs network/key
     from openai import OpenAI
 
     client = OpenAI()
@@ -74,7 +74,7 @@ def _openai_answer(prompt: str) -> str:  # pragma: no cover - needs network/key
         model=config.openai_model,
         max_tokens=config.max_tokens,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ],
     )
@@ -85,13 +85,16 @@ class LLMClient:
     def __init__(self, provider: str | None = None) -> None:
         self.provider = (provider or config.llm_provider).lower()
 
+    def complete(self, system: str, prompt: str) -> str:
+        """One completion from the configured provider (not available for mock)."""
+        if self.provider == "anthropic":
+            return _anthropic_complete(system, prompt)
+        if self.provider == "openai":
+            return _openai_complete(system, prompt)
+        raise ValueError(f"Provider {self.provider!r} has no completion endpoint")
+
     def generate(self, query: str, contexts: List[RetrievedChunk]) -> Tuple[str, List[str]]:
         used = [c.chunk.id for c in contexts]
         if self.provider == "mock":
             return _mock_answer(query, contexts), used
-        prompt = build_prompt(query, contexts)
-        if self.provider == "anthropic":
-            return _anthropic_answer(prompt), used
-        if self.provider == "openai":
-            return _openai_answer(prompt), used
-        raise ValueError(f"Unknown LLM provider: {self.provider!r}")
+        return self.complete(SYSTEM_PROMPT, build_prompt(query, contexts)), used
