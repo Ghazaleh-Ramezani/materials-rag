@@ -60,6 +60,12 @@ class Config:
     embedding_model: str = _env("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
     embedding_dim: int = _env_int("EMBEDDING_DIM", 384)  # used by hashing fallback
 
+    # ---- dense vector store ----
+    # "faiss" (index file under data/index) or "pgvector" (PostgreSQL with the vector extension)
+    vector_backend: str = _env("VECTOR_BACKEND", "faiss")
+    pgvector_dsn: str = _env("PGVECTOR_DSN", "postgresql://rag:rag@localhost:5432/rag")
+    pgvector_collection: str = _env("PGVECTOR_COLLECTION", "materials")
+
     # ---- retrieval ----
     sparse_k: int = _env_int("SPARSE_K", 20)
     dense_k: int = _env_int("DENSE_K", 20)

@@ -1,4 +1,4 @@
-"""Build the sparse (BM25) and dense (FAISS) indexes from chunks.jsonl.
+"""Build the sparse (BM25) and dense (FAISS or pgvector) indexes from chunks.jsonl.
 
 Usage:
     python -m scripts.build_indexes
@@ -7,7 +7,7 @@ Usage:
 from __future__ import annotations
 
 from src.config import config
-from src.indexing.dense_index import DenseIndex
+from src.indexing.pgvector_index import get_dense_index_class
 from src.indexing.sparse_index import SparseIndex
 from src.ingestion.ingest_papers import load_chunks
 
@@ -21,12 +21,12 @@ def main() -> None:
     sparse.save()
     print(f"[build] sparse BM25 index saved -> {config.index_dir / 'bm25.pkl'}")
 
-    dense = DenseIndex().build(chunks)
+    dense = get_dense_index_class()().build(chunks)
     dense.save()
-    print(
-        f"[build] dense FAISS index saved -> {config.index_dir / 'faiss.index'} "
-        f"(backend={config.embedding_backend}, dim={dense.embedder.dim})"
-    )
+    where = (f"pgvector collection {config.pgvector_collection!r}" if config.vector_backend == "pgvector"
+             else str(config.index_dir / "faiss.index"))
+    print(f"[build] dense index saved -> {where} "
+          f"(embeddings={config.embedding_backend}, dim={dense.embedder.dim})")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,34 @@
+# docker compose up --build            API with the FAISS index baked into the image
+# docker compose --profile pgvector up --build
+#                                      API reading dense vectors from PostgreSQL + pgvector
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+
+  db:
+    image: pgvector/pgvector:pg16
+    profiles: ["pgvector"]
+    environment:
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: rag   # local demo only
+      POSTGRES_DB: rag
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag"]
+      interval: 3s
+      retries: 20
+
+  api-pgvector:
+    build: .
+    profiles: ["pgvector"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      VECTOR_BACKEND: pgvector
+      PGVECTOR_DSN: postgresql://rag:rag@db:5432/rag
+    # Load the vectors into PostgreSQL, then serve.
+    command: ["sh", "-c", "python -m scripts.build_indexes && uvicorn src.api.main:app --host 0.0.0.0 --port 8000"]
+    ports:
+      - "8001:8000"
