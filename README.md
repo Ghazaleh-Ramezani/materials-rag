@@ -58,6 +58,7 @@ LLM.
 | Ingestion    | `pypdf`, regex cleaning, word-window chunking                   |
 | Sparse index | `rank-bm25` (BM25Okapi)                                          |
 | Dense index  | `faiss-cpu` (IndexFlatIP / cosine), `sentence-transformers`     |
+| Vector DB    | PostgreSQL 16 + `pgvector` (HNSW, inner product), optional      |
 | Fusion       | Reciprocal Rank Fusion (own implementation)                     |
 | Rerank       | `sentence-transformers` CrossEncoder (optional)                 |
 | Cache        | exact + entity-matched nearest-neighbor, JSONL-persisted        |
@@ -145,6 +146,31 @@ small the numbers confirm the harness end to end; retrieval quality is measured 
 real corpus of 30–50+ papers with overlapping topics, which is the scale the harness
 is built for.
 
+## Vector database backend (pgvector)
+
+The dense side can live in PostgreSQL instead of a FAISS file
+(`src/indexing/pgvector_index.py`): `VECTOR_BACKEND=pgvector` switches both index
+building and the pipeline, with no other change.
+
+```bash
+docker compose --profile pgvector up --build      # PostgreSQL + pgvector, API on :8001
+# or against your own database:
+VECTOR_BACKEND=pgvector PGVECTOR_DSN=postgresql://rag:rag@localhost:5432/rag python -m scripts.build_indexes
+```
+
+* One table per collection with an HNSW index on `vector_ip_ops`. Vectors are
+  L2-normalized, so inner-product ranking is cosine ranking, as in `IndexFlatIP`.
+  `hnsw.ef_search` is raised per query so the candidate list is never shorter than `k`.
+* A `rag_collections` table records the embedder, dimension and size of each
+  collection; loading under a different embedder fails, exactly as the FAISS index
+  does. A rebuild replaces the collection in one transaction.
+* `tests/test_pgvector.py` checks, against a live PostgreSQL with pgvector, that the
+  scores and neighbours equal FAISS's on every benchmark question, that hybrid
+  retrieval returns the same documents with either backend, and the embedder and
+  collection checks. CI runs them with `pgvector/pgvector:pg16` and fails if they
+  are skipped, then runs the retrieval evaluation with both backends and requires
+  identical Recall@k, Hit@k and MRR.
+
 ## Design notes
 
 - **Offline by default.** The hashing embedder and mock generator keep the whole
@@ -178,4 +204,9 @@ is built for.
 
 ```bash
 pytest -q        # ~5 s, offline: RRF, cache rules, metrics, judge parsing, index check, pipeline, API
+PGVECTOR_TEST_DSN=postgresql://rag:rag@localhost:5432/rag pytest -q   # adds the pgvector parity tests
 ```
+
+CI (`.github/workflows/tests.yml`) runs the suite with a pgvector service, the retrieval
+evaluation on both backends, and the Docker Compose stack (FAISS image and pgvector
+profile) with a `/qa` request against each.
