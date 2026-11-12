@@ -8,7 +8,7 @@ from typing import Optional
 
 from src.config import config
 from src.generation.llm import LLMClient
-from src.indexing.dense_index import DenseIndex
+from src.indexing.pgvector_index import get_dense_index_class
 from src.indexing.sparse_index import SparseIndex
 from src.ingestion.ingest_papers import load_chunks
 from src.retrieval.cache import SemanticCache
@@ -19,7 +19,7 @@ from src.schemas import Answer, Chunk, RetrievedChunk
 class RAGPipeline:
     def __init__(self) -> None:
         chunks = load_chunks()
-        self.dense = DenseIndex.load()
+        self.dense = get_dense_index_class().load()
         self.sparse = SparseIndex.load()
         reranker = CrossEncoderReranker() if config.use_reranker else None
         self.retriever = HybridRetriever(

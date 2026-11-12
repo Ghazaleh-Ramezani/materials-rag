@@ -1,0 +1,62 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: rag
+          POSTGRES_PASSWORD: rag
+          POSTGRES_DB: rag
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U rag" --health-interval 3s --health-retries 20
+    env:
+      PGVECTOR_TEST_DSN: postgresql://rag:rag@localhost:5432/rag
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Tests, including pgvector parity with FAISS (no skips allowed)
+        run: |
+          set -o pipefail
+          pytest -q -rs | tee pytest.log
+          ! grep -q SKIPPED pytest.log
+      - name: Retrieval evaluation on the sample corpus, FAISS and pgvector
+        env:
+          EMBEDDING_BACKEND: hashing
+          CACHE_ENABLED: "false"
+        run: |
+          python -m src.ingestion.ingest_papers
+          python -m scripts.build_indexes
+          python -m src.evaluation.eval_retrieval --k 3 | tee faiss.txt
+          VECTOR_BACKEND=pgvector PGVECTOR_DSN=$PGVECTOR_TEST_DSN python -m scripts.build_indexes
+          VECTOR_BACKEND=pgvector PGVECTOR_DSN=$PGVECTOR_TEST_DSN python -m src.evaluation.eval_retrieval --k 3 | tee pgvector.txt
+          diff <(grep -E '"(recall|hit|mrr)' faiss.txt) <(grep -E '"(recall|hit|mrr)' pgvector.txt)
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Image with the FAISS index, then the pgvector profile
+        run: |
+          docker compose --profile pgvector up -d --build
+          for port in 8000 8001; do
+            for i in $(seq 1 60); do curl -fsS localhost:$port/health && break; sleep 2; done
+            curl -fsS -X POST localhost:$port/qa -H 'content-type: application/json' \
+              -d '{"query": "How does rGO reduction degree affect the gauge factor?", "k": 3}' | tee /dev/stderr \
+              | grep -q rgo_strain_sensors
+          done
+      - if: failure()
+        run: docker compose --profile pgvector logs
+      - run: docker compose --profile pgvector down -v
